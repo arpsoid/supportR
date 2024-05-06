@@ -1,16 +1,21 @@
-# This file contains a matrix-analytic model of the multiserver job model with
-# two servers, and here the so-called level-crossing-information (LCI) approach
-# is used to get the solution in transient state.
-
-rm(list=ls())
-lambda=1
-mu1=1
-mu2=2
-p1=0.4
-p2=1-p1
-
-######################################### TRANSIENT ANALYSIS
-EQ.lt=function(s){# phases are (1,1), (1,2) and (2,*) - overall 3 phases
+#' Matrix-analytic model of the 2-server multiserver job model
+#'
+#' TransientMJM2 computes the Laplace-Stieltjes Transform for the
+#' average number of customers in the system in transient state
+#'
+#' @param s The value at which to compute the LST (gives steady-state average if s=0)
+#' @param lambda The arrival rate
+#' @param mu1 The service rate for class-1 customer (requires 1 server)
+#' @param mu2 The service rate for class-2 customer (requires 2 servers)
+#' @param p1 Probability that an arrival is class-1
+#' @return The LST for the mean number of customers in the system transient state
+#' @references R. Razumchik et al., A queueing system for performance evaluation of a markovian supercomputer model. 2023 doi: 10.14357/19922264230209.
+#' @export
+#' @examples
+#' TransientMJM2(0) # returns the average number of customers in steady state in a system with lambda=1, mu1=1, mu2=2, p1=0.4
+#' invlap(Vectorize(TransientMJM2), 0, 5000000, 1000) # returns the transient performance of the model
+TransientMJM2=function(s,lambda=1,mu1=1,mu2=2,p1=0.4){# phases are (1,1), (1,2) and (2,*) - overall 3 phases
+  p2=1-p1
   A1=diag(lambda,3)
   A0=diag(c(-lambda-2*mu1,-lambda-mu1,-lambda-mu2)-s)
   Am1=rbind(
@@ -109,9 +114,3 @@ EQ.lt=function(s){# phases are (1,1), (1,2) and (2,*) - overall 3 phases
   stat=sum(pi1)+ 2*sum(pi2)+ sum(pi3 %*%(3*I-2* W) %*% solve(I-W) %*% solve(I-W))
   return(stat)
 }
-
-library(pracma)
-Fs=Vectorize(EQ.lt)
-Li <- invlap(Fs, 0, 5000000, 1000)
-plot(Li, type = "l",lwd=1,xlab="t",ylab=expression(E~X(t)))
-abline(h=EQ.lt(0),lty=2,lwd=1)

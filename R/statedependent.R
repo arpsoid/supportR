@@ -1,17 +1,17 @@
-# This file contains matrix-analytic model and simulation model of the
-# multiclass queueing-inventory model where customer classes require
-# groups of items from inventory of various size, and each class has a dedicated
-# server.
-
-
-rm(list=ls())
-
-#================================ Matrix-Analytic Model below===================
-library(partitions)
-
-tol=1e-15
-Sglobal=7
-perf=function(s){
+#' Matrix-analytic model of the queueing-inventory system with random-size inventory requirement
+#'
+#' TransientQIG computes the Laplace-Stieltjes Transform for the
+#' performance measures in the queueing-inventory model in transient state
+#'
+#' @param s The value at which to compute the LST (gives steady-state average if s=0)
+#' @return The LST for the various performance measures of the system transient state
+#' @export
+#' @examples
+#' TransientQIG(0) # returns the performance in steady state in a system with lambda=1, mu1=1, mu2=2, p1=0.4
+#' invlap(Vectorize(TransientQIG), 0, 80, 500) # returns the transient performance of the model
+TransientQIG=function(s){
+  tol=1e-15
+  Sglobal=7
   gl=list(S=Sglobal,#3, # number of classes = inventory size
           s=2,#1, # inventory parameter, reorder point
           gamma= 3, # replenishment rate
@@ -28,8 +28,8 @@ perf=function(s){
   npartmatrix=matrix(rep(0,gl$S),nrow=1)
   ynpartmatrix=cbind(0,npartmatrix)
   for(y in 1:gl$S){ # number of possible class combinations in service zone with (y-1) inventory
-    numstatesn[y+1]=numstatesn[y]+P(y)
-    npartmatrix=rbind(npartmatrix,t(apply(parts(y),2,charpart)))
+    numstatesn[y+1]=numstatesn[y]+partitions::P(y)
+    npartmatrix=rbind(npartmatrix,t(apply(partitions::parts(y),2,charpart)))
     ynpartmatrix=rbind(ynpartmatrix,
                        cbind(y,npartmatrix))
   }
@@ -40,8 +40,6 @@ perf=function(s){
   piof0=c(1,rep(0,sizeY-1))
 
   A1=Am1=A0=matrix(0,nrow=sizeY,ncol=sizeY)
-
-  #A1=diag(sum(gl$phi*gl$p*gl$lambda),nrow=sizeY)
 
   for(y in 1:sizeY){
     was=ynpartmatrix[y,]
@@ -121,8 +119,6 @@ perf=function(s){
     G=G+Tm%*%Lm
     Tm=Tm%*%Hm
   }
-  #H=A0
-  #for (i in 1:20) {  G=solve(-H) %*% Am1; H=A0+A1 %*% G}
 
   R=-A1 %*% solve(A0+A1 %*% G)
 
@@ -146,115 +142,12 @@ perf=function(s){
   return(list(
     AIL=sum(apply(q,1,function(v)sum(v*ynpartmatrix[,1]))), # average inventory level
     AOL=sum(q[1,] %*% R %*% solve(diag(sizeY)-R)%*% solve(diag(sizeY)-R)), # average orbit level
-    #AOL=sum(apply(q,1,sum)*(1:nrow(q)-1)) # average orbit level
     PIO=sum(q[1,]), # probability of idle orbit
     PES=q[1,1], # probability of idle system
     ERR=sum(q[1,] %*% solve(diag(sizeY)-R) %*% Gam), # effective replenishment rate
-    #sum(apply(q,1,function(x) x %*% Gam)) # effective replenishment rate
     ESR=sum(q[1,] %*% solve(diag(sizeY)-R) %*% M), # effective service rate
     EAS=sum(q[1,] %*% solve(diag(sizeY)-R) %*% (Arr0)), # effective arrival into service
     EAO=sum(q[1,] %*% solve(diag(sizeY)-R) %*% (A1)), # effective arrival into orbit
     ETAR=sum(q[1,] %*% solve(diag(sizeY)-R) %*% (A1+Arr0)) # effective total arrival rate
   ))
-  #AC1=sum(apply(q,1,function(v)sum(v*ynpartmatrix[,2]))) # average inventory level
 }
-
-library(pracma)
-Fs=Vectorize(perf)
-Li <- invlap(Fs, 0, 80, 500)
-plot(Li,type="l",xlab="t",ylab=expression(A[OL](t)),lwd=2,log="x")
-abline(h=perf(0),lty=2,lwd=2)
-
-#========================================== Discrete-Event Simultation (GSMP)===
-
-library(simulato)
-# This file contains a class for the multiclass inventory-retrial model
-
-#globalcounter=0
-
-# State:
-# 1:S -- number of this class customers in service zone
-# S+1 -- orbit size
-# S+2 -- inventory size
-# Clock:
-# 1:S -- residual service time of this class
-# S+1 -- residual retrial time
-# S+2 -- residual interarrival time
-# S+3 -- residual replenishment time
-queueinventory <- function(gl=list(S=3, # number of classes = inventory size
-                                   s=1, # inventory parameter, reorder point
-                                   gamma= 3, # replenishment rate
-                                   psS=0.5, # type of replenishment
-                                   lambda = 0.2, # arrival rate
-                                   p=(1:3)/sum(1:3), # customer class arrival probability
-                                   mu = (3:1)/5, # service rates vector
-                                   eta = 2, # retrial rate
-                                   phi=rep(0.1,3))) {# orbit joining probability
-  #if(with(gl,sum(lambda*p/mu)+max(lambda*p/(lambda*p+eta))>1)) stop("Unstable")
-  m=gsmp()
-  class(m) <- append(class(m),"queueinventory")
-  m$state <- c(1,rep(0,gl$S-1),0,gl$S) # start by serving a single class-1 customer
-  m$gl <- gl
-  m$clocks <- rep(Inf,gl$S+3)
-  m$clocks[getActiveEvents(m)] <- getNewClocks(m,getActiveEvents(m))
-  return(m)
-}
-
-isRegeneration.queueinventory <- function(m) {
-  return(all(m$state[1:(m$gl$S+1)]==0) & m$state[m$gl$S+2]==m$gl$S)
-}
-getPerformance.queueinventory <- function(m){# what is the model performance measured at given point
-  #m$state[m$gl$N+1]>0 # busy probability
-  #m$state[m$gl$N+1]==1:m$gl$N # per class busy probability
-  #m$state[m$gl$N+1]==0 & m$state[1:m$gl$N]==0 # per class idle with idle orbit
-  #m$state[m$gl$N+1]==0 & m$state[1:m$gl$N]>0 # per class idle with busy orbit
-  #return(m$state[m$gl$S+1]) # orbit-queue size
-  return(all(m$state==0)) # idle probability
-  #return(m$state[m$gl$S+2]) # inventory size #c(m$state[1],m$state[2],m$state[1]^2,m$state[2]^2,m$state[1]*m$state[2]))
-}
-getRates.queueinventory <- function(m){
-  r <- rep(0,length(m$clocks))
-  r[getActiveEvents(m)] <- 1
-  return(r)
-}
-getNewGSMP.queueinventory <- function(m,e){
-  S <- m$gl$S
-  nm <- m
-  fits=function(m,clarr) return(sum((1:S)*m$state[1:S])+clarr<=m$state[S+2])
-  if(e==S+2){ # arrival
-    clarr=sample.int(S,size=1,prob = m$gl$p)
-    if(fits(m,clarr)) # can be accomodated in the service zone
-      nm$state[clarr] <- m$state[clarr]+1 # this arrival goes to service
-    else if(runif(1)<=m$gl$phi[clarr]) # decides to join the orbit
-      nm$state[S+1] <- m$state[S+1]+1
-  } else if(e<=S){ # departure from service zone
-    nm$state[e]=m$state[e]-1
-    nm$state[S+2]=m$state[S+2]-e
-  } else if(e==S+1){ # retrial
-    clarr=sample.int(S,size=1,prob = m$gl$p)
-    if(fits(m,clarr)){ # successful
-      nm$state[clarr] <- m$state[clarr]+1
-      nm$state[e] <- m$state[e]-1
-    }
-  } else if(e==S+3){ # replenishment
-    nm$state[S+2]=ifelse(runif(1)<m$gl$psS,m$gl$S,nm$state[S+2]+m$gl$S-m$gl$s)
-    #globalcounter <<- globalcounter+1 # to count replenishments
-  }
-  return(nm)
-}
-getActiveEvents.queueinventory <- function(m){
-  a=which(m$state[1:(m$gl$S+1)]>0)
-  a=c(a,m$gl$S+2)
-  if(m$state[m$gl$S+2]<=m$gl$s)
-    a=c(a,m$gl$S+3)
-  return(a)
-}
-getNewClocks.queueinventory <- function(m, e)  {# here we need to process the clocks based on the new events (their numbers)
-  rates=c(m$gl$mu,m$gl$eta,m$gl$lambda,m$gl$gamma)[e]
-  return(rexp(length(e),rate=rates))#ifelse(e==m$gl$S+2,m$gl$lambda, # arrival
-  #ifelse(e<=m$gl$S,m$gl$mu[e], # service
-  #ifelse(e==m$gl$S+3,m$gl$gamma, # replenishment
-  #       m$gl$eta))   ))) # retrial
-}
-m=queueinventory()
-getRegEst(trace(m,10000000))#[,"est"]
